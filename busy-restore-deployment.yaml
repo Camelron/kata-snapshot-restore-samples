@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-kata-restore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: busybox-kata-restore
+  template:
+    metadata:
+      labels:
+        app: busybox-kata-restore
+      annotations:
+        io.katacontainers.restore-from: "/run/vc/vm/snapshots/busybox-kata"
+    spec:
+      runtimeClassName: kata-preview
+      topologySpreadConstraints:
+      - maxSkew: 1
+        minDomains: 2
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: busybox-kata-restore
+      containers:
+      - name: busybox
+        image: docker.io/library/busybox:latest
+        imagePullPolicy: Never
+        command: ["sh", "-c", "sleep infinity"]

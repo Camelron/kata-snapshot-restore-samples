@@ -1,0 +1,16 @@
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  labels: 
+    run: busybox 
+  annotations:
+    io.katacontainers.restore-from: "/run/vc/vm/snapshots/busybox-kata"
+  name: busybox-kata-restored-2
+spec: 
+  nodeSelector:
+    kubernetes.io/hostname: aks-nodepool1-48531884-vmss000001
+  containers: 
+  - image: docker.io/library/busybox:latest
+    imagePullPolicy: Never
+    name: busybox
+  runtimeClassName: kata-preview

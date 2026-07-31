@@ -1,0 +1,48 @@
+# Minimal reproducer for the Go-runtime + block-rootfs "local" volume bug,
+# when emptydir_mode is left at its default "shared-fs" (i.e. NOT set to
+# "block-encrypted").
+#
+# See EROFS-GO-RUNTIME-LOCAL-VOLUME-INCOMPAT.md for the full analysis. This
+# affects any Go-runtime RuntimeClass whose rootfs is delivered to the guest
+# as a raw block device (erofs, devmapper, etc. with block_device_driver set)
+# rather than via virtiofs/9p.
+#
+#   kubectl apply -f aks-emptydir-repro.yaml
+#   kubectl get pod emptydir-repro -w   # never becomes Ready
+#   kubectl describe pod emptydir-repro | sed -n '/Events:/,$p'
+#
+# Expected failure (root cause):
+#   failed to create dir all
+#     ".../rootfs/local/disk-empty-vol": Read-only file system (os error 30)
+# then on retries:
+#   failed to mount overlay to /run/kata-containers/.../rootfs: EBUSY
+#
+# Control: flip the volume to `emptyDir: { medium: Memory }` and the Pod
+# starts fine (tmpfs/ephemeral path), proving the failure is the disk-backed
+# "local" path, not the block rootfs in general.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir-repro
+spec:
+  runtimeClassName: kata-preview
+  restartPolicy: Never
+  containers:
+    - name: repro
+      image: docker.io/library/busybox:latest
+      # The dir-creation for /host/cache actually fails during container
+      # creation (before this command ever runs) - see handleLocalStorage()
+      # in kata_agent.go. This write is just to make the intended volume
+      # usage explicit; it's not required to trigger the bug.
+      command: ["sh", "-c", "echo hello > /host/cache/marker && tail -f /dev/null"]
+      volumeMounts:
+        - name: disk-empty-vol
+          mountPath: /host/cache
+  volumes:
+    # Default medium (node disk) -> routed through the broken "local" path
+    # whenever emptydir_mode = "shared-fs" (the default) and the rootfs is
+    # block-delivered (devmapper or erofs).
+    - name: disk-empty-vol
+      emptyDir: {}
+

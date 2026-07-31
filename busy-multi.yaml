@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: busybox
+  name: busybox-kata-multi
+spec:
+  containers:
+  - image: docker.io/library/busybox:latest
+    imagePullPolicy: Never
+    name: busybox-1
+    command: ["sh", "-c", "sleep infinity"]
+  - image: docker.io/library/busybox:latest
+    imagePullPolicy: Never
+    name: busybox-2
+    command: ["sh", "-c", "sleep infinity"]
+  - image: docker.io/library/busybox:latest
+    imagePullPolicy: Never
+    name: busybox-3
+    command: ["sh", "-c", "sleep infinity"]
+  runtimeClassName: kata-preview
