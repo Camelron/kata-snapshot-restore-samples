@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: pyruntime
+  annotations:
+    io.katacontainers.restore-from: "/run/vc/vm/snapshots/pyruntime"
+  name: pyruntime-kata-restored
+spec:
+  containers:
+  - image: docker.io/harshitg/python-runtime:1
+    imagePullPolicy: Never
+    name: pyruntime
+    # this command cannot serve the API: a restored Pod that answers on 8888
+    # is proof of restore rather than a cold start
+    command: ["sleep", "infinity"]
+    ports:
+    - containerPort: 8888
+  runtimeClassName: kata-preview

@@ -28,6 +28,10 @@ restore manifests expect the resulting snapshot to already exist under
   `snapshot-sync.katacontainers.io/source=true` before running the sync script.
 - The BusyBox image is cached on every eligible node. Restore and benchmark
   manifests use `imagePullPolicy: Never` so image pulls do not affect timing.
+  The application-state samples use other images; cache them with
+  `warm-images.yaml` before running those manifests.
+- Restore manifests keep the container names of their source manifest, because
+  each restored container is adopted by name.
 - Snapshot creation, synchronization, and restore operations do not overlap.
 - The Pod/container definition used for restore remains compatible with the
   definition captured in the snapshot.
@@ -38,6 +42,10 @@ The primary snapshot names are:
 | --- | --- |
 | Single-container BusyBox | `/run/vc/vm/snapshots/busybox-kata` |
 | Three-container BusyBox | `/run/vc/vm/snapshots/busybox-kata-multi` |
+| Single-container counter | `/run/vc/vm/snapshots/counter` |
+| Three-container counter | `/run/vc/vm/snapshots/counter-multi` |
+| Python runtime | `/run/vc/vm/snapshots/pyruntime` |
+| OpenClaw gateway | `/run/vc/vm/snapshots/openclaw` |
 
 ## File catalog
 
@@ -66,6 +74,19 @@ benchmark itself; it can be removed after the image has been pulled everywhere.
 kubectl apply -f busy.yaml
 kubectl get pods -l app=busybox-kata-source -o wide
 kubectl delete -f busy.yaml
+```
+
+#### [`warm-images.yaml`](warm-images.yaml)
+
+The equivalent of `busy.yaml` for the application-state samples. It caches the
+Python, Python-runtime, and OpenClaw images on every Kata-capable node so those
+manifests can also use `imagePullPolicy: Never`. Remove it once the pulls
+complete.
+
+```sh
+kubectl apply -f warm-images.yaml
+kubectl get pods -l app=warm-images -o wide
+kubectl delete -f warm-images.yaml
 ```
 
 ### Snapshot distribution
@@ -201,6 +222,78 @@ expects all image layers to already be cached.
 The matching three-container restore Pod. It restores from
 `/run/vc/vm/snapshots/busybox-kata-multi`; its container names and commands
 mirror `busy-multi.yaml`.
+
+### Application-state restore tests
+
+The BusyBox samples show that a sandbox restores. These show that the workload
+running inside it survives: each restore manifest starts `sleep infinity`, so it
+cannot serve traffic on its own. A restored Pod that still answers is running
+the process captured in the snapshot.
+
+#### [`counter.yaml`](counter.yaml)
+
+A source Pod running a small HTTP counter on port 9999. It reports a boot id
+generated once at process start, a counter incremented every second, and
+`yaml=source` from its environment. `POST /bump` adds 1000, `POST /mark` writes
+a file, and `GET /marker` reads it back.
+
+#### [`counter-restore.yaml`](counter-restore.yaml)
+
+The matching restore Pod for `/run/vc/vm/snapshots/counter`. It should serve the
+snapshot's boot id and `yaml=source` even though its own spec says otherwise:
+
+```sh
+kubectl apply -f counter-restore.yaml
+kubectl wait --for=condition=Ready pod/counter-kata-restored --timeout=60s
+kubectl exec counter-kata-restored -- wget -qO- 127.0.0.1:9999
+```
+
+#### [`counter-multi.yaml`](counter-multi.yaml)
+
+Three counters in one sandbox on ports 9999, 9998, and 9997, each with its own
+boot id and marker file. It is the proof-carrying counterpart to
+`busy-multi.yaml`.
+
+#### [`counter-multi-restore.yaml`](counter-multi-restore.yaml)
+
+The matching three-container restore Pod for
+`/run/vc/vm/snapshots/counter-multi`. Querying all three ports shows which
+containers were adopted and that they diverge independently after restore.
+
+#### [`pyruntime.yaml`](pyruntime.yaml)
+
+A source Pod running a FastAPI runtime image on port 8888. Its `/execute`
+endpoint runs code inside the guest, which is a convenient way to write files
+before a snapshot and read them back afterwards.
+
+#### [`pyruntime-restore.yaml`](pyruntime-restore.yaml)
+
+The matching restore Pod for `/run/vc/vm/snapshots/pyruntime`. The image comes
+from a third-party registry and this pair has not been exercised as widely as
+the counter samples.
+
+#### [`openclaw-config.yaml`](openclaw-config.yaml)
+
+The gateway ConfigMap for the OpenClaw sample. Apply it before either OpenClaw
+Pod.
+
+#### [`openclaw.yaml`](openclaw.yaml)
+
+A source Pod running the OpenClaw agent gateway and its Control UI on port
+18789, with agent state on an in-memory `emptyDir` so it is captured by the
+memory snapshot. It is the heaviest sample here; the guest needs noticeably more
+memory than the default Pod VM size or the gateway is OOM-killed inside the VM.
+
+#### [`openclaw-restore.yaml`](openclaw-restore.yaml)
+
+The matching restore Pod for `/run/vc/vm/snapshots/openclaw`. A restored Pod
+that returns the Control UI is a live service that survived restore:
+
+```sh
+kubectl apply -f openclaw-restore.yaml
+kubectl wait --for=condition=Ready pod/openclaw-kata-restored --timeout=120s
+kubectl port-forward openclaw-kata-restored 18789:18789
+```
 
 ### Independent runtime reproducer
 

@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: openclaw
+  name: openclaw-kata
+spec:
+  containers:
+  - image: ghcr.io/openclaw/openclaw:2026.3.28
+    imagePullPolicy: Never
+    name: openclaw
+    env:
+    - name: OPENCLAW_GATEWAY_TOKEN
+      value: "dummy-token-for-sandbox"
+    - name: OPENCLAW_CONFIG_PATH
+      value: "/etc/openclaw/openclaw.json"
+    command:
+    - node
+    - dist/index.js
+    - gateway
+    - --bind=lan
+    - --port
+    - "18789"
+    - --allow-unconfigured
+    ports:
+    - containerPort: 18789
+    volumeMounts:
+    - mountPath: /home/node/.openclaw
+      name: openclaw-state
+    - mountPath: /etc/openclaw
+      name: openclaw-config
+  volumes:
+  - name: openclaw-state
+    emptyDir: {}
+  - name: openclaw-config
+    configMap:
+      name: openclaw-config
+  runtimeClassName: kata-preview

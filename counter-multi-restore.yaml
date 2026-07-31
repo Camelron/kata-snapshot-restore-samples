@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: counter
+  annotations:
+    io.katacontainers.restore-from: "/run/vc/vm/snapshots/counter-multi"
+  name: counter-kata-multi-restored
+spec:
+  containers:
+  # container names must match counter-multi.yaml: each restored container is
+  # adopted by its name, and each answers on its own port with its own boot id
+  - image: mcr.microsoft.com/azurelinux/base/python:3.12
+    imagePullPolicy: Never
+    name: counter-1
+    command: ["sleep", "infinity"]
+  - image: mcr.microsoft.com/azurelinux/base/python:3.12
+    imagePullPolicy: Never
+    name: counter-2
+    command: ["sleep", "infinity"]
+  - image: mcr.microsoft.com/azurelinux/base/python:3.12
+    imagePullPolicy: Never
+    name: counter-3
+    command: ["sleep", "infinity"]
+  runtimeClassName: kata-preview

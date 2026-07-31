@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: counter
+  name: counter-kata
+spec:
+  containers:
+  - image: mcr.microsoft.com/azurelinux/base/python:3.12
+    imagePullPolicy: Never
+    name: counter
+    env:
+    - {name: CNAME, value: counter}
+    - {name: PORT, value: "9999"}
+    - {name: MARKER, value: /tmp/marker}
+    - {name: YAML_ROLE, value: source}
+    command: ["python3", "-u", "-c"]
+    args:
+    - |
+      import http.server, socketserver, threading, time, uuid, os
+      n = 0
+      lock = threading.Lock()
+      boot = uuid.uuid4().hex
+      marker = os.environ["MARKER"]
+      port = int(os.environ["PORT"])
+      cname = os.environ["CNAME"]
+      role = os.environ["YAML_ROLE"]
+      def tick():
+          global n
+          while True:
+              time.sleep(1)
+              with lock:
+                  n += 1
+      threading.Thread(target=tick, daemon=True).start()
+      class H(http.server.BaseHTTPRequestHandler):
+          def reply(self, body, status=200):
+              body = body.encode()
+              self.send_response(status)
+              self.send_header("Content-Length", str(len(body)))
+              self.end_headers()
+              self.wfile.write(body)
+          def do_GET(self):
+              if self.path == "/marker":
+                  body = open(marker).read() if os.path.exists(marker) else "missing\n"
+                  return self.reply(body)
+              with lock:
+                  value = n
+              self.reply("name=%s boot=%s yaml=%s counter=%d\n" % (cname, boot, role, value))
+          def do_POST(self):
+              global n
+              if self.path == "/bump":
+                  with lock:
+                      n += 1000
+                      value = n
+                  return self.reply("counter=%d\n" % value)
+              if self.path == "/mark":
+                  open(marker, "w").write("%s-was-here\n" % cname)
+                  return self.reply("marked\n")
+              self.reply("not found\n", 404)
+          def log_message(self, *a):
+              pass
+      socketserver.ThreadingTCPServer.allow_reuse_address = True
+      socketserver.ThreadingTCPServer(("0.0.0.0", port), H).serve_forever()
+    ports:
+    - containerPort: 9999
+  runtimeClassName: kata-preview

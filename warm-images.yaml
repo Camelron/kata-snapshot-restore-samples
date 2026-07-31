@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: warm-images
+spec:
+  selector:
+    matchLabels:
+      app: warm-images
+  template:
+    metadata:
+      labels:
+        app: warm-images
+    spec:
+      nodeSelector:
+        katacontainers.io/kata-runtime: "true"
+      containers:
+      - image: mcr.microsoft.com/azurelinux/base/python:3.12
+        name: python
+        command: ["sleep", "infinity"]
+      - image: docker.io/harshitg/python-runtime:1
+        name: pyruntime
+        command: ["sleep", "infinity"]
+      - image: ghcr.io/openclaw/openclaw:2026.3.28
+        name: openclaw
+        command: ["sleep", "infinity"]
+      runtimeClassName: kata-preview
