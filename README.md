@@ -10,18 +10,20 @@ The main workflow is:
 
 1. Prepare and label the Kata-capable nodes.
 2. Warm the BusyBox image on every node.
-3. Create a snapshot on one source node using the external snapshot workflow.
+3. Create a snapshot on one source node with `snapshot-create.sh`.
 4. Distribute that node-local snapshot to the other Kata nodes.
 5. Run either the single-Pod smoke test or the normal-versus-restore scale demo.
 
-Snapshot creation itself is not automated by the files in this directory. The
-restore manifests expect the resulting snapshot to already exist under
+`snapshot-create.sh` automates the host-side snapshot command for an existing
+source Pod. The restore manifests expect the resulting snapshot to exist under
 `/run/vc/vm/snapshots` on every node where a restored Pod may be scheduled.
 
 ## Prerequisites and conventions
 
 - The cluster has the custom `kata-preview` runtime handler that supports
   `io.katacontainers.restore-from`.
+- The `kubectl node-shell` plugin is installed locally; `snapshot-create.sh`
+   uses it to run `crictl` and `kata-runtime` in the selected node's namespaces.
 - Every eligible node is labeled
   `katacontainers.io/kata-runtime=true`.
 - Exactly one authoritative snapshot node is labeled
@@ -68,6 +70,43 @@ kubectl get pods -l app=busybox-kata-source -o wide
 kubectl delete -f busy.yaml
 ```
 
+### Snapshot creation
+
+#### [`snapshot-create.sh`](snapshot-create.sh)
+
+Creates a snapshot from a running Pod's Ready CRI sandbox. It looks up the
+sandbox by the Kubernetes Pod UID, avoiding ambiguous matches when Pod names
+share a prefix or an older failed sandbox attempt remains on the node. The
+snapshot is written to `/run/vc/vm/snapshots/<pod-name>`, so the source Pod name
+must match the snapshot directory referenced by the restore manifest. For the
+primary demo, that name is `busybox-kata`.
+
+Pass the Pod name and, optionally, its node name:
+
+```sh
+./snapshot-create.sh busybox-kata
+./snapshot-create.sh busybox-kata <node-name>
+```
+
+When the node is omitted, the script requires exactly one node labeled
+`snapshot-sync.katacontainers.io/source=true`. It verifies that the Pod is
+Running on the selected node before invoking:
+
+```sh
+kata-runtime snapshot create \
+   --sandbox-id <sandbox-id> \
+   --path /run/vc/vm/snapshots/<pod-name>
+```
+
+The script refuses to overwrite an existing snapshot by default. Validate the
+lookup without creating anything, or explicitly replace an existing snapshot:
+
+```sh
+./snapshot-create.sh --dry-run busybox-kata
+./snapshot-create.sh --replace busybox-kata
+./snapshot-create.sh --namespace <namespace> <pod-name> [node-name]
+```
+
 ### Snapshot distribution
 
 #### [`snapshot-sync.sh`](snapshot-sync.sh)
@@ -112,13 +151,6 @@ NAMESPACE=<namespace> ./snapshot-sync.sh
 The helper image defaults to `ubuntu:24.04` because BusyBox tar does not encode
 GNU sparse metadata. An image supplied through `HELPER_IMAGE` must include GNU
 tar with `--sparse`, gzip, and `sha256sum`.
-
-#### [`snapshots.tar.gz`](snapshots.tar.gz)
-
-A local archive artifact from manual snapshot transfer/debugging. It contains a
-copy of the `busybox-kata` snapshot tree and is not read automatically by any
-manifest or by `snapshot-sync.sh`. It can be retained for inspection or removed
-when no longer needed.
 
 ### Single-Pod restore tests
 
@@ -222,8 +254,8 @@ expected read-only-filesystem failure and the in-memory `emptyDir` control case.
 
 2. Warm the BusyBox image on both nodes with `busy.yaml`, then remove the
    DaemonSet after the pulls complete.
-3. Create or refresh `/run/vc/vm/snapshots/busybox-kata` on one node using the
-   custom snapshot workflow.
+3. Run `./snapshot-create.sh <pod-name>` to create the snapshot on the labeled
+   source node. Add `--replace` when deliberately refreshing an existing path.
 4. Label that node as the sync source and run `./snapshot-sync.sh`.
 5. Run `busy-restore.yaml` for a one-Pod smoke test.
 6. Apply both Deployment manifests and follow `busy-restore-demo.md` for the
