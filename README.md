@@ -9,10 +9,11 @@ that directory instead of cold-starting it.
 The main workflow is:
 
 1. Prepare the Kata-capable nodes and label exactly one as the snapshot source.
-2. Start the `busybox-kata` source Pod on that node.
-3. Create a snapshot on one source node with `snapshot-create.sh`.
-4. Distribute that node-local snapshot to the other Kata nodes.
-5. Run either the single-Pod smoke test or the normal-versus-restore scale demo.
+2. Cache the BusyBox image on every Kata-capable node.
+3. Start the `busybox-kata` source Pod on the snapshot source node.
+4. Create a snapshot on that node with `snapshot-create.sh`.
+5. Distribute that node-local snapshot to the other Kata nodes.
+6. Run either the single-Pod smoke test or the normal-versus-restore scale demo.
 
 `snapshot-create.sh` automates the host-side snapshot command for an existing
 source Pod. The restore manifests expect the resulting snapshot to exist under
@@ -57,12 +58,32 @@ Apply this only when the cluster does not already provide the RuntimeClass:
 kubectl apply -f runtimeClass-kata-preview-azl3.yaml
 ```
 
+#### [`busy-daemonset.yaml`](busy-daemonset.yaml)
+
+A temporary DaemonSet that pulls `docker.io/library/busybox:latest` onto every
+node labeled `katacontainers.io/kata-runtime=true`. It uses
+`imagePullPolicy: IfNotPresent`, so each node pulls the image only when it is
+missing. Wait for every DaemonSet Pod to become Ready before deleting it:
+
+```sh
+kubectl apply -f busy-daemonset.yaml
+kubectl rollout status daemonset/busybox-cache --timeout=5m
+kubectl get pods -l app=busybox-cache -o wide
+kubectl delete -f busy-daemonset.yaml
+```
+
+Deleting the DaemonSet removes its Pods but leaves the image in each node's
+containerd cache. The later source, restore, and benchmark workloads can
+therefore use `imagePullPolicy: Never` without including image pulls in their
+startup times.
+
 #### [`busy.yaml`](busy.yaml)
 
 A long-running source Pod named `busybox-kata`. The `kata-preview` RuntimeClass
 selects `katacontainers.io/kata-runtime=true` nodes, and the Pod additionally
 selects `snapshot-sync.katacontainers.io/source=true`, so it runs only on the
-selected snapshot source node. Label exactly one source node before creating it:
+selected snapshot source node. It uses `imagePullPolicy: Never`, so complete the
+cache DaemonSet step first. Label exactly one source node before creating it:
 
 ```sh
 kubectl label node <source-node> \
@@ -74,8 +95,8 @@ kubectl get pod busybox-kata -o wide
 ```
 
 Leave the Pod running until `snapshot-create.sh` has created its snapshot. The
-apply also caches BusyBox on the source node; independently ensure it is cached
-on every other node that will run a manifest with `imagePullPolicy: Never`.
+image must remain cached on every node that will later run a restore or benchmark
+workload.
 
 ### Snapshot creation
 
@@ -259,14 +280,17 @@ expected read-only-filesystem failure and the in-memory `emptyDir` control case.
      snapshot-sync.katacontainers.io/source=true
    ```
 
-2. Apply `busy.yaml` and wait for the `busybox-kata` Pod to become Ready on the
+2. Apply `busy-daemonset.yaml`, wait for `daemonset/busybox-cache` to finish its
+   rollout, confirm that one cache Pod ran on each Kata node, and delete the
+   DaemonSet. The cached image remains on the nodes.
+3. Apply `busy.yaml` and wait for the `busybox-kata` Pod to become Ready on the
    labeled source node.
-3. Run `./snapshot-create.sh busybox-kata` to create the snapshot, then remove
+4. Run `./snapshot-create.sh busybox-kata` to create the snapshot, then remove
    the source Pod with `kubectl delete -f busy.yaml`. Add `--replace` when
    deliberately refreshing an existing path.
-4. Run `./snapshot-sync.sh` from the already-labeled source node.
-5. Run `busy-restore.yaml` for a one-Pod smoke test.
-6. Apply both Deployment manifests and follow `busy-restore-demo.md` for the
+5. Run `./snapshot-sync.sh` from the already-labeled source node.
+6. Run `busy-restore.yaml` for a one-Pod smoke test.
+7. Apply both Deployment manifests and follow `busy-restore-demo.md` for the
    normal-versus-restore scale comparison.
 
 For repeatable measurements, keep the node set, image cache, snapshot contents,

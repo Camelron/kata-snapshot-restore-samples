@@ -9,6 +9,7 @@ spec:
     snapshot-sync.katacontainers.io/source: "true"
   containers:
   - image: docker.io/library/busybox:latest
+    imagePullPolicy: Never
     name: busybox
     command: ["sh", "-c", "sleep infinity"]
   runtimeClassName: kata-preview

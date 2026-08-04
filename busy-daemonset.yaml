@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: busybox-cache
+spec:
+  selector:
+    matchLabels:
+      app: busybox-cache
+  template:
+    metadata:
+      labels:
+        app: busybox-cache
+    spec:
+      nodeSelector:
+        katacontainers.io/kata-runtime: "true"
+      containers:
+      - image: docker.io/library/busybox:latest
+        imagePullPolicy: IfNotPresent
+        name: busybox
+        command: ["sh", "-c", "sleep infinity"]
+      runtimeClassName: kata-preview
