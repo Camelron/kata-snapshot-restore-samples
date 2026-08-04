@@ -8,8 +8,8 @@ that directory instead of cold-starting it.
 
 The main workflow is:
 
-1. Prepare and label the Kata-capable nodes.
-2. Warm the BusyBox image on every node.
+1. Prepare the Kata-capable nodes and label exactly one as the snapshot source.
+2. Start the `busybox-kata` source Pod on that node.
 3. Create a snapshot on one source node with `snapshot-create.sh`.
 4. Distribute that node-local snapshot to the other Kata nodes.
 5. Run either the single-Pod smoke test or the normal-versus-restore scale demo.
@@ -27,7 +27,7 @@ source Pod. The restore manifests expect the resulting snapshot to exist under
 - Every eligible node is labeled
   `katacontainers.io/kata-runtime=true`.
 - Exactly one authoritative snapshot node is labeled
-  `snapshot-sync.katacontainers.io/source=true` before running the sync script.
+   `snapshot-sync.katacontainers.io/source=true` before applying `busy.yaml`.
 - The BusyBox image is cached on every eligible node. Restore and benchmark
   manifests use `imagePullPolicy: Never` so image pulls do not affect timing.
 - Snapshot creation, synchronization, and restore operations do not overlap.
@@ -59,16 +59,23 @@ kubectl apply -f runtimeClass-kata-preview-azl3.yaml
 
 #### [`busy.yaml`](busy.yaml)
 
-A DaemonSet used to pull and cache `docker.io/library/busybox:latest` once on
-every Kata-capable node. This keeps containerd image-layer work out of later
-restore measurements. Its purpose is node preparation, not the restore
-benchmark itself; it can be removed after the image has been pulled everywhere.
+A long-running source Pod named `busybox-kata`. The `kata-preview` RuntimeClass
+selects `katacontainers.io/kata-runtime=true` nodes, and the Pod additionally
+selects `snapshot-sync.katacontainers.io/source=true`, so it runs only on the
+selected snapshot source node. Label exactly one source node before creating it:
 
 ```sh
+kubectl label node <source-node> \
+   snapshot-sync.katacontainers.io/source=true
+
 kubectl apply -f busy.yaml
-kubectl get pods -l app=busybox-kata-source -o wide
-kubectl delete -f busy.yaml
+kubectl wait --for=condition=Ready pod/busybox-kata --timeout=2m
+kubectl get pod busybox-kata -o wide
 ```
+
+Leave the Pod running until `snapshot-create.sh` has created its snapshot. The
+apply also caches BusyBox on the source node; independently ensure it is cached
+on every other node that will run a manifest with `imagePullPolicy: Never`.
 
 ### Snapshot creation
 
@@ -130,13 +137,11 @@ The script:
 The destination becomes an exact copy of the source snapshot tree. Files that
 exist only on a destination are removed by the directory replacement.
 
-Select a source where you have prepared your snapshot(s) and run the sync:
+The source selected before applying `busy.yaml` is also the synchronization
+source. Confirm the label and run the sync:
 
 ```sh
-kubectl label nodes --all snapshot-sync.katacontainers.io/source-
-kubectl label node <source-node> \
-  snapshot-sync.katacontainers.io/source=true
-
+kubectl get nodes -l snapshot-sync.katacontainers.io/source=true
 ./snapshot-sync.sh
 ```
 
@@ -245,18 +250,21 @@ expected read-only-filesystem failure and the in-memory `emptyDir` control case.
 
 ## Suggested two-node workflow
 
-1. Verify RuntimeClass and node labels:
+1. Verify the RuntimeClass and Kata node labels, then select one snapshot source:
 
    ```sh
    kubectl get runtimeclass kata-preview
    kubectl get nodes -L katacontainers.io/kata-runtime
+   kubectl label node <source-node> \
+     snapshot-sync.katacontainers.io/source=true
    ```
 
-2. Warm the BusyBox image on both nodes with `busy.yaml`, then remove the
-   DaemonSet after the pulls complete.
-3. Run `./snapshot-create.sh <pod-name>` to create the snapshot on the labeled
-   source node. Add `--replace` when deliberately refreshing an existing path.
-4. Label that node as the sync source and run `./snapshot-sync.sh`.
+2. Apply `busy.yaml` and wait for the `busybox-kata` Pod to become Ready on the
+   labeled source node.
+3. Run `./snapshot-create.sh busybox-kata` to create the snapshot, then remove
+   the source Pod with `kubectl delete -f busy.yaml`. Add `--replace` when
+   deliberately refreshing an existing path.
+4. Run `./snapshot-sync.sh` from the already-labeled source node.
 5. Run `busy-restore.yaml` for a one-Pod smoke test.
 6. Apply both Deployment manifests and follow `busy-restore-demo.md` for the
    normal-versus-restore scale comparison.

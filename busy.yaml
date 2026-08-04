@@ -1,20 +1,14 @@
-apiVersion: apps/v1
-kind: DaemonSet
+apiVersion: v1
+kind: Pod
 metadata:
   name: busybox-kata
+  labels:
+    app: busybox-kata-source
 spec:
-  selector:
-    matchLabels:
-      app: busybox-kata-source
-  template:
-    metadata:
-      labels:
-        app: busybox-kata-source
-        run: busybox
-    spec:
-      nodeSelector:
-        katacontainers.io/kata-runtime: "true"
-      containers:
-      - image: docker.io/library/busybox:latest
-        name: busybox
-      runtimeClassName: kata-preview
+  nodeSelector:
+    snapshot-sync.katacontainers.io/source: "true"
+  containers:
+  - image: docker.io/library/busybox:latest
+    name: busybox
+    command: ["sh", "-c", "sleep infinity"]
+  runtimeClassName: kata-preview

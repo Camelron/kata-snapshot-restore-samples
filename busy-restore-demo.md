@@ -47,7 +47,7 @@ export TARGET_REPLICAS=50
 Run this Bash block in the main terminal:
 
 ```bash
-target_replicas="${TARGET_REPLICAS:-100}"
+target_replicas="${TARGET_REPLICAS:-50}"
 
 if [[ ! "$target_replicas" =~ ^[1-9][0-9]*$ ]]; then
     printf 'TARGET_REPLICAS must be a positive integer; got %s.\n' "$target_replicas" >&2
